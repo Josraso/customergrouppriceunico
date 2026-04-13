@@ -266,8 +266,8 @@ class UnicoexportController extends AdminController
         ];
         $objPHPSpreadsheet->getActiveSheet()->getStyle('A1:E1')->applyFromArray($styleArray);
 
-        $filename = 'CustomerGroupPriceUnico.xls';
-        header('Content-type: application/vnd.ms-excel');
+        $filename = 'CustomerGroupPriceUnico.xlsx';
+        header('Content-type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         header('Content-Disposition: attachment; filename="' . $filename . '"');
         $Writer = new Xlsx($objPHPSpreadsheet);
         $Writer->save('php://output');

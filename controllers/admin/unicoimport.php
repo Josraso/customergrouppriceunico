@@ -1,6 +1,6 @@
 <?php
 /**
- * Controlador de importacion Excel simplificado.
+ * Controlador de importacion Excel.
  * Formato de columnas:
  *   A: Id Grupo  |  B: Nombre Grupo (ignorado)  |  C: Id Producto  |  D: Nombre Producto (ignorado)  |  E: Precio
  *
@@ -63,7 +63,7 @@ class UnicoimportController extends AdminController
 
     public function initContent()
     {
-        $enable = Tools::getValue('cgrppriceunico_enable', Configuration::get('CGRPPRICEUNICO_ENABLE'));
+        $enable = (int) Configuration::get('CGRPPRICEUNICO_ENABLE');
 
         if (Tools::isSubmit('submitUnicoproductimport')) {
             $this->import();
@@ -85,8 +85,9 @@ class UnicoimportController extends AdminController
             return;
         }
 
-        $filename = explode('.', $_FILES['import']['name']);
-        if (!isset($filename[1]) || $filename[1] !== 'xls') {
+        $filename = $_FILES['import']['name'];
+        $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        if ($ext !== 'xlsx') {
             $this->errors[] = $this->trans('Please import valid excel file!', [], 'Shop.Notifications.Error');
             return;
         }
@@ -97,47 +98,60 @@ class UnicoimportController extends AdminController
 
         $reader = new \PhpOffice\PhpSpreadsheet\Reader\Xlsx();
 
-        if (is_readable($_FILES['import']['tmp_name'])) {
-            $reader_excel = $reader->load($_FILES['import']['tmp_name']);
-            $excel_file = $reader_excel->getActiveSheet()->toArray(null, true, true, true);
+        if (!is_readable($_FILES['import']['tmp_name'])) {
+            $this->errors[] = $this->trans('Please import valid excel file!', [], 'Shop.Notifications.Error');
+            return;
+        }
 
-            $data = [];
-            $i = 0;
-            foreach ($excel_file as $sheetData) {
-                if ($i !== 0) {
-                    $id_group    = $sheetData['A'];
-                    $id_product  = $sheetData['C'];
-                    $product_price = $sheetData['E'];
+        $reader_excel = $reader->load($_FILES['import']['tmp_name']);
+        $excel_file   = $reader_excel->getActiveSheet()->toArray(null, true, true, true);
 
-                    if (!empty($id_group) && !empty($id_product)) {
-                        $data[] = [
-                            'id_group'      => (int) $id_group,
-                            'id_product'    => (int) $id_product,
-                            'product_price' => $product_price,
-                        ];
-                    }
+        $data = [];
+        $i = 0;
+        foreach ($excel_file as $sheetData) {
+            if ($i !== 0) {
+                $id_group      = $sheetData['A'];
+                $id_product    = $sheetData['C'];
+                $product_price = $sheetData['E'];
+
+                if (!empty($id_group) && !empty($id_product)) {
+                    $data[] = [
+                        'id_group'      => (int) $id_group,
+                        'id_product'    => (int) $id_product,
+                        'product_price' => $product_price,
+                    ];
                 }
-                ++$i;
+            }
+            ++$i;
+        }
+
+        if (!empty($data)) {
+            $date = date('Y-m-d');
+            foreach ($data as $row) {
+                Db::getInstance()->execute(
+                    'DELETE FROM `' . _DB_PREFIX_ . 'customergrouppriceunico` WHERE
+                    `id_product` = ' . (int) $row['id_product'] . ' AND `group_id` = ' . (int) $row['id_group']
+                );
+
+                $product_price = !empty($row['product_price']) ? (float) $row['product_price'] : 0;
+
+                Db::getInstance()->execute(
+                    'INSERT INTO `' . _DB_PREFIX_ . 'customergrouppriceunico` SET
+                    `id_product`        = ' . (int) $row['id_product'] . ',
+                    `product_price`     = \'' . (float) $product_price . '\',
+                    `group_id`          = ' . (int) $row['id_group'] . ',
+                    `id_specific_price` = NULL,
+                    `date_add`          = \'' . pSQL($date) . '\',
+                    `date_upd`          = \'' . pSQL($date) . '\''
+                );
             }
 
-            if (!empty($data)) {
-                $date = date('y-m-d');
-                foreach ($data as $row) {
-                    Db::getInstance()->execute(
-                        'DELETE FROM `' . _DB_PREFIX_ . 'customergrouppriceunico` WHERE
-                        id_product=' . (int) $row['id_product'] . ' AND group_id=' . (int) $row['id_group']
-                    );
-
-                    $product_price = !empty($row['product_price']) ? $row['product_price'] : '0';
-
-                    Db::getInstance()->execute(
-                        'INSERT INTO ' . _DB_PREFIX_ . 'customergrouppriceunico SET
-                        `id_product`    = \'' . pSQL($row['id_product']) . '\',
-                        `product_price` = \'' . pSQL($product_price) . '\',
-                        `group_id`      = \'' . pSQL($row['id_group']) . '\',
-                        `date_add`      = \'' . pSQL($date) . '\',
-                        `date_upd`      = \'' . pSQL($date) . '\''
-                    );
+            // Resincronizar SpecificPrices para cada producto importado
+            $module = Module::getInstanceByName('customergrouppriceunico');
+            if ($module) {
+                $imported_products = array_unique(array_column($data, 'id_product'));
+                foreach ($imported_products as $id_product) {
+                    $module->syncSpecificPricesForProduct((int) $id_product);
                 }
             }
         }
