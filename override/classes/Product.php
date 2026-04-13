@@ -63,7 +63,8 @@ register_shutdown_function(static function () {
 error_log('[UNICO] override/classes/Product.php cargado — PS=' . (defined('_PS_VERSION_') ? _PS_VERSION_ : '?') . ' PHP=' . PHP_VERSION);
 // =============================================================================
 
-
+class Product extends ProductCore
+{
     public static function priceCalculation(
         $id_shop,
         $id_product,
