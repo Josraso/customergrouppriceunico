@@ -42,6 +42,15 @@ class Customergrouppriceunico extends Module
             [],
             'Modules.Customergrouppriceunico.Admin'
         );
+
+        // Aviso informativo en PS9: override operativo pero deprecated
+        if (version_compare(_PS_VERSION_, '9.0.0', '>=')) {
+            $this->warning = $this->trans(
+                'PS9 detectado: el sistema de overrides esta deprecated. El modulo funciona correctamente en la version actual de PS9.',
+                [],
+                'Modules.Customergrouppriceunico.Admin'
+            );
+        }
     }
 
     public function install()
@@ -68,9 +77,10 @@ class Customergrouppriceunico extends Module
 
     public function installTab()
     {
-        $tmdtab = true;
+        $tmdtab   = true;
         $tabparent = 'Customergrouppriceunico';
         $id_parent = Tab::getIdFromClassName($tabparent);
+
         if (!$id_parent) {
             $tab = new Tab();
             $tab->active = 1;
@@ -80,29 +90,19 @@ class Customergrouppriceunico extends Module
                 $tab->name[$lang['id_lang']] = $this->trans('Customer Group Price Unico');
             }
             $tab->id_parent = 0;
-            $tab->module = $this->name;
-            $tmdtab &= $tab->add();
+            $tab->module    = $this->name;
+            $tmdtab  &= $tab->add();
             $id_parent = $tab->id;
         }
 
         $submenu = [
-            [
-                'class' => 'Customergrouppriceunico',
-                'name'  => $this->trans('Form Setting'),
-            ],
-            [
-                'class' => 'Unicoexport',
-                'name'  => $this->trans('Unico Export'),
-            ],
-            [
-                'class' => 'Unicoimport',
-                'name'  => $this->trans('Unico Import'),
-            ],
+            ['class' => 'Customergrouppriceunico', 'name' => $this->trans('Form Setting')],
+            ['class' => 'Unicoexport',             'name' => $this->trans('Unico Export')],
+            ['class' => 'Unicoimport',             'name' => $this->trans('Unico Import')],
         ];
 
         foreach ($submenu as $item) {
-            $idtab = Tab::getIdFromClassName($item['class']);
-            if (!$idtab) {
+            if (!Tab::getIdFromClassName($item['class'])) {
                 $tab = new Tab();
                 $tab->active = 1;
                 $tab->class_name = $item['class'];
@@ -111,7 +111,7 @@ class Customergrouppriceunico extends Module
                     $tab->name[$lang['id_lang']] = $item['name'];
                 }
                 $tab->id_parent = $id_parent;
-                $tab->module = $this->name;
+                $tab->module    = $this->name;
                 $tmdtab &= $tab->add();
             }
         }
@@ -121,12 +121,10 @@ class Customergrouppriceunico extends Module
 
     public function uninstallTab()
     {
-        $alltabs = ['Customergrouppriceunico', 'Unicoexport', 'Unicoimport'];
-        foreach ($alltabs as $class_name) {
+        foreach (['Customergrouppriceunico', 'Unicoexport', 'Unicoimport'] as $class_name) {
             $id = Tab::getIdFromClassName($class_name);
             if ($id) {
-                $tab = new Tab((int) $id);
-                $tab->delete();
+                (new Tab((int) $id))->delete();
             }
         }
         return true;
@@ -134,27 +132,23 @@ class Customergrouppriceunico extends Module
 
     public function uninstall()
     {
-        $this->disableAllSpecificPrices();
         return parent::uninstall()
             && Configuration::deleteByName('CGRPPRICEUNICO_ENABLE')
             && $this->uninstallTab()
             && $this->uninstallDB();
     }
 
+    // -------------------------------------------------------------------------
+    // Configuracion del modulo
+    // -------------------------------------------------------------------------
+
     public function getContent()
     {
         if (Tools::isSubmit('submitCgrppriceunico')) {
-            $was_enabled = (int) Configuration::get('CGRPPRICEUNICO_ENABLE');
-            $now_enabled = (int) Tools::getValue('cgrppriceunico_enable');
-
-            Configuration::updateValue('CGRPPRICEUNICO_ENABLE', $now_enabled);
-
-            if (!$was_enabled && $now_enabled) {
-                $this->enableAllSpecificPrices();
-            } elseif ($was_enabled && !$now_enabled) {
-                $this->disableAllSpecificPrices();
-            }
-
+            Configuration::updateValue(
+                'CGRPPRICEUNICO_ENABLE',
+                (int) Tools::getValue('cgrppriceunico_enable')
+            );
             $this->_html .= $this->displayConfirmation(
                 $this->trans('Configuracion guardada correctamente.', [], 'Modules.Customergrouppriceunico.Admin')
             );
@@ -166,20 +160,25 @@ class Customergrouppriceunico extends Module
         return $this->_html;
     }
 
+    // -------------------------------------------------------------------------
+    // Hook: formulario de producto
+    // -------------------------------------------------------------------------
+
     public function hookDisplayAdminProductsExtra($params)
     {
         if (!(int) Configuration::get('CGRPPRICEUNICO_ENABLE')) {
             return;
         }
 
-        $id_product = (int) $params['id_product'];
+        $id_product      = (int) $params['id_product'];
         $customer_groups = Group::getGroups((int) $this->context->language->id);
-        $customer_grp = [];
+        $customer_grp    = [];
 
         foreach ($customer_groups as $cust_grp) {
             $grp_price = Db::getInstance()->getValue(
                 'SELECT `product_price` FROM `' . _DB_PREFIX_ . 'customergrouppriceunico`
-                WHERE `id_product` = ' . $id_product . ' AND `group_id` = ' . (int) $cust_grp['id_group']
+                WHERE `id_product` = ' . $id_product . '
+                AND `group_id` = '   . (int) $cust_grp['id_group']
             );
 
             $customer_grp[] = [
@@ -201,6 +200,10 @@ class Customergrouppriceunico extends Module
         return $this->fetch('module:customergrouppriceunico/views/templates/hook/unicogrouppricelist.tpl');
     }
 
+    // -------------------------------------------------------------------------
+    // Hooks: guardar precios al salvar producto
+    // -------------------------------------------------------------------------
+
     public function hookActionProductUpdate($params)
     {
         if ($this->isSaved) {
@@ -214,6 +217,10 @@ class Customergrouppriceunico extends Module
         $this->isSaved = true;
     }
 
+    /**
+     * Igual que hookActionProductUpdate pero para productos nuevos.
+     * En PS los params pueden traer id_product o el objeto Product.
+     */
     public function hookActionProductAdd($params)
     {
         if ($this->isSaved) {
@@ -235,169 +242,28 @@ class Customergrouppriceunico extends Module
     }
 
     // -------------------------------------------------------------------------
-    // Gestion de precios de grupo
+    // Persistencia de precios de grupo
     // -------------------------------------------------------------------------
 
     protected function saveGroupPrices($id_product, array $allgroup_price)
     {
-        $enable = (int) Configuration::get('CGRPPRICEUNICO_ENABLE');
-        $date   = date('Y-m-d');
-
-        $this->deleteSpecificPricesForProduct($id_product);
+        $date = date('Y-m-d');
 
         Db::getInstance()->execute(
-            'DELETE FROM `' . _DB_PREFIX_ . 'customergrouppriceunico` WHERE `id_product` = ' . $id_product
+            'DELETE FROM `' . _DB_PREFIX_ . 'customergrouppriceunico`
+            WHERE `id_product` = ' . $id_product
         );
 
         foreach ($allgroup_price as $id_group => $row) {
             $price = (float) $row['product_price'];
-            $id_specific_price = 'NULL';
-
-            if ($enable && $price > 0) {
-                $sp_id = $this->createSpecificPriceForGroup($id_product, (int) $id_group, $price);
-                if ($sp_id) {
-                    $id_specific_price = (int) $sp_id;
-                }
-            }
-
             Db::getInstance()->execute(
                 'INSERT INTO `' . _DB_PREFIX_ . 'customergrouppriceunico` SET
-                `id_product`        = ' . $id_product . ',
-                `product_price`     = \'' . (float) $price . '\',
-                `group_id`          = ' . (int) $id_group . ',
-                `id_specific_price` = ' . $id_specific_price . ',
-                `date_add`          = \'' . pSQL($date) . '\',
-                `date_upd`          = \'' . pSQL($date) . '\''
+                `id_product`    = ' . $id_product . ',
+                `product_price` = \'' . $price . '\',
+                `group_id`      = ' . (int) $id_group . ',
+                `date_add`      = \'' . pSQL($date) . '\',
+                `date_upd`      = \'' . pSQL($date) . '\''
             );
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // SpecificPrice helpers
-    // -------------------------------------------------------------------------
-
-    /**
-     * Crea un SpecificPrice nativo de PrestaShop para el par producto+grupo.
-     * Devuelve el id del SpecificPrice creado, o 0 si falla.
-     */
-    public function createSpecificPriceForGroup($id_product, $id_group, $price)
-    {
-        $sp = new SpecificPrice();
-        $sp->id_shop              = (int) $this->context->shop->id;
-        $sp->id_shop_group        = 0;
-        $sp->id_currency          = 0;
-        $sp->id_country           = 0;
-        $sp->id_group             = (int) $id_group;
-        $sp->id_customer          = 0;
-        $sp->id_product           = (int) $id_product;
-        $sp->id_product_attribute = 0;
-        $sp->id_cart              = 0;
-        $sp->price                = (float) $price;
-        $sp->from_quantity        = 1;
-        $sp->reduction            = 0;
-        $sp->reduction_tax        = 1;
-        $sp->reduction_type       = 'amount';
-        $sp->from                 = '0000-00-00 00:00:00';
-        $sp->to                   = '0000-00-00 00:00:00';
-        $sp->add();
-        return (int) $sp->id;
-    }
-
-    /**
-     * Elimina los SpecificPrices rastreados por el modulo para un producto.
-     */
-    protected function deleteSpecificPricesForProduct($id_product)
-    {
-        $rows = Db::getInstance()->executeS(
-            'SELECT `id_specific_price` FROM `' . _DB_PREFIX_ . 'customergrouppriceunico`
-            WHERE `id_product` = ' . (int) $id_product . ' AND `id_specific_price` IS NOT NULL'
-        );
-        foreach ($rows as $row) {
-            $sp = new SpecificPrice((int) $row['id_specific_price']);
-            if (Validate::isLoadedObject($sp)) {
-                $sp->delete();
-            }
-        }
-    }
-
-    /**
-     * Crea SpecificPrices para todos los registros de la tabla (al activar el modulo).
-     */
-    protected function enableAllSpecificPrices()
-    {
-        $rows = Db::getInstance()->executeS(
-            'SELECT * FROM `' . _DB_PREFIX_ . 'customergrouppriceunico` WHERE `product_price` > 0'
-        );
-        foreach ($rows as $row) {
-            if (!empty($row['id_specific_price'])) {
-                continue;
-            }
-            $sp_id = $this->createSpecificPriceForGroup(
-                (int) $row['id_product'],
-                (int) $row['group_id'],
-                (float) $row['product_price']
-            );
-            if ($sp_id) {
-                Db::getInstance()->execute(
-                    'UPDATE `' . _DB_PREFIX_ . 'customergrouppriceunico`
-                    SET `id_specific_price` = ' . $sp_id . '
-                    WHERE `id_group_price` = ' . (int) $row['id_group_price']
-                );
-            }
-        }
-    }
-
-    /**
-     * Elimina todos los SpecificPrices rastreados por el modulo (al desactivar).
-     */
-    protected function disableAllSpecificPrices()
-    {
-        $rows = Db::getInstance()->executeS(
-            'SELECT `id_specific_price` FROM `' . _DB_PREFIX_ . 'customergrouppriceunico`
-            WHERE `id_specific_price` IS NOT NULL'
-        );
-        foreach ($rows as $row) {
-            $sp = new SpecificPrice((int) $row['id_specific_price']);
-            if (Validate::isLoadedObject($sp)) {
-                $sp->delete();
-            }
-        }
-        Db::getInstance()->execute(
-            'UPDATE `' . _DB_PREFIX_ . 'customergrouppriceunico` SET `id_specific_price` = NULL'
-        );
-    }
-
-    /**
-     * Resincroniza los SpecificPrices de un producto concreto.
-     * Llamado desde el importador tras importar precios.
-     */
-    public function syncSpecificPricesForProduct($id_product)
-    {
-        if (!(int) Configuration::get('CGRPPRICEUNICO_ENABLE')) {
-            return;
-        }
-        $this->deleteSpecificPricesForProduct($id_product);
-        Db::getInstance()->execute(
-            'UPDATE `' . _DB_PREFIX_ . 'customergrouppriceunico`
-            SET `id_specific_price` = NULL WHERE `id_product` = ' . (int) $id_product
-        );
-        $rows = Db::getInstance()->executeS(
-            'SELECT * FROM `' . _DB_PREFIX_ . 'customergrouppriceunico`
-            WHERE `id_product` = ' . (int) $id_product . ' AND `product_price` > 0'
-        );
-        foreach ($rows as $row) {
-            $sp_id = $this->createSpecificPriceForGroup(
-                (int) $row['id_product'],
-                (int) $row['group_id'],
-                (float) $row['product_price']
-            );
-            if ($sp_id) {
-                Db::getInstance()->execute(
-                    'UPDATE `' . _DB_PREFIX_ . 'customergrouppriceunico`
-                    SET `id_specific_price` = ' . $sp_id . '
-                    WHERE `id_group_price` = ' . (int) $row['id_group_price']
-                );
-            }
         }
     }
 }
