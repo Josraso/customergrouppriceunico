@@ -191,12 +191,25 @@ class Product extends ProductCore
         }
 
         // ---- Inyeccion del precio unico de grupo -------------------------
-        if (!empty($context->customer->id_default_group)) {
-            $id_group    = (int) $context->customer->id_default_group;
+        //
+        // IMPORTANTE: usamos $id_group (parametro del metodo) directamente.
+        //
+        // NO usamos $context->customer->id_default_group porque $context es
+        // una variable static que se cachea en la primera llamada dentro del
+        // mismo proceso. Si la primera llamada viene del backoffice (admin),
+        // el contexto queda congelado con el grupo del administrador, y todas
+        // las llamadas posteriores del frontend usarian ese grupo equivocado,
+        // no encontrarian precio de grupo y devolverian el precio normal.
+        //
+        // El parametro $id_group ya contiene el grupo correcto: PS lo calcula
+        // en getPriceStatic() a partir de Customer::getDefaultGroupId() o de
+        // Group::getCurrent() para visitantes, antes de llamar a este metodo.
+        //
+        if ($id_group) {
             $group_price = Db::getInstance()->getValue(
                 'SELECT `product_price` FROM `' . _DB_PREFIX_ . 'customergrouppriceunico`
                 WHERE `id_product` = ' . (int) $id_product . '
-                AND `group_id` = '   . $id_group
+                AND `group_id` = '   . (int) $id_group
             );
             if ((float) $group_price > 0) {
                 $price = (float) $group_price;

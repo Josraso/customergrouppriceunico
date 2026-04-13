@@ -59,6 +59,8 @@ class Customergrouppriceunico extends Module
             && $this->registerHook('displayAdminProductsExtra')
             && $this->registerHook('actionProductUpdate')
             && $this->registerHook('actionProductAdd')
+            && $this->registerHook('actionAfterUpdateProductFormHandler')
+            && $this->registerHook('actionAfterCreateProductFormHandler')
             && $this->installTab()
             && $this->installDB();
     }
@@ -233,6 +235,53 @@ class Customergrouppriceunico extends Module
         $id_product = isset($params['id_product']) ? (int) $params['id_product'] : 0;
         if (!$id_product && isset($params['object'])) {
             $id_product = (int) $params['object']->id;
+        }
+        if (!$id_product) {
+            return;
+        }
+        $this->saveGroupPrices($id_product, (array) $allgroup_price);
+        $this->isSaved = true;
+    }
+
+    // -------------------------------------------------------------------------
+    // Hooks PS8.1+ / PS9: formulario Symfony de producto
+    // En PS9 el controlador del producto es Symfony. Ademas de actionProductUpdate
+    // (que sigue disparandose), estos hooks son el mecanismo oficial para el
+    // nuevo formulario de producto. Los registramos como seguro adicional.
+    // -------------------------------------------------------------------------
+
+    public function hookActionAfterUpdateProductFormHandler($params)
+    {
+        if ($this->isSaved) {
+            return;
+        }
+        $allgroup_price = Tools::getValue('unico_group_price');
+        if ($allgroup_price === false) {
+            return;
+        }
+        $id_product = isset($params['id']) ? (int) $params['id'] : 0;
+        if (!$id_product && isset($params['product'])) {
+            $id_product = (int) $params['product']->id;
+        }
+        if (!$id_product) {
+            return;
+        }
+        $this->saveGroupPrices($id_product, (array) $allgroup_price);
+        $this->isSaved = true;
+    }
+
+    public function hookActionAfterCreateProductFormHandler($params)
+    {
+        if ($this->isSaved) {
+            return;
+        }
+        $allgroup_price = Tools::getValue('unico_group_price');
+        if ($allgroup_price === false) {
+            return;
+        }
+        $id_product = isset($params['id']) ? (int) $params['id'] : 0;
+        if (!$id_product && isset($params['product'])) {
+            $id_product = (int) $params['product']->id;
         }
         if (!$id_product) {
             return;
