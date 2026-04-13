@@ -289,7 +289,7 @@ class UnicoexportController extends AdminController
 
     public function getGroup($id, $id_lang)
     {
-        $group_info = new Group($id, false, $id_lang);
+        $group_info = new Group((int) $id, $id_lang);
         return $group_info->name;
     }
 }
