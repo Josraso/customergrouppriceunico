@@ -19,50 +19,6 @@
  * @copyright 2007-2024 TMD
  * @license   https://opensource.org/licenses/OSL-3.0 Open Software License (OSL 3.0)
  */
-
-// =============================================================================
-// DEBUG TEMPORAL — captura errores fatales al cargar este override.
-// Ver log en: <PS_ROOT>/var/logs/unico_override_debug.log
-// O en /tmp/unico_override_debug.log si no existe la ruta de PS.
-// QUITAR este bloque cuando el problema este identificado.
-// =============================================================================
-ini_set('log_errors', '1');
-register_shutdown_function(static function () {
-    $e = error_get_last();
-    if (!$e || !in_array($e['type'], [E_ERROR, E_COMPILE_ERROR, E_CORE_ERROR, E_PARSE], true)) {
-        return;
-    }
-    // Escribir a fichero de log
-    $psRoot = defined('_PS_ROOT_DIR_') ? _PS_ROOT_DIR_ : '';
-    $logDir = $psRoot ? rtrim($psRoot, '/') . '/var/logs' : sys_get_temp_dir();
-    @mkdir($logDir, 0755, true);
-    @file_put_contents(
-        $logDir . '/unico_override_debug.log',
-        date('[Y-m-d H:i:s] ') . 'Type=' . $e['type']
-            . ' | ' . $e['message']
-            . ' | File: ' . $e['file'] . ':' . $e['line'] . PHP_EOL,
-        FILE_APPEND | LOCK_EX
-    );
-    // Forzar visualizacion del error en el navegador
-    while (ob_get_level() > 0) {
-        @ob_end_clean();
-    }
-    if (!headers_sent()) {
-        header('Content-Type: text/html; charset=utf-8');
-    }
-    echo '<div style="'
-        . 'background:#c0392b;color:#fff;padding:16px 20px;font:14px/1.5 monospace;'
-        . 'position:fixed;top:0;left:0;right:0;z-index:99999;word-break:break-all">'
-        . '<strong>[UNICO OVERRIDE DEBUG] Error fatal al cargar Product override</strong><br>'
-        . 'Tipo: ' . (int) $e['type'] . '<br>'
-        . 'Mensaje: ' . htmlspecialchars($e['message']) . '<br>'
-        . 'Archivo: ' . htmlspecialchars($e['file']) . ' linea ' . (int) $e['line']
-        . '</div>';
-});
-// Log de carga exitosa (aparece en error_log del servidor si todo va bien)
-error_log('[UNICO] override/classes/Product.php cargado — PS=' . (defined('_PS_VERSION_') ? _PS_VERSION_ : '?') . ' PHP=' . PHP_VERSION);
-// =============================================================================
-
 class Product extends ProductCore
 {
     public static function priceCalculation(
@@ -288,7 +244,7 @@ class Product extends ProductCore
         }
 
         // Personalizacion
-        if ((int) $id_customization) {
+        if ((int) $id_customization && method_exists('Customization', 'getCustomizationPrice')) {
             $price += Tools::convertPrice(
                 Customization::getCustomizationPrice($id_customization),
                 $id_currency
