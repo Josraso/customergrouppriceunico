@@ -1,12 +1,18 @@
 <?php
 /**
  * Script de diagnostico — customergrouppriceunico
- * Acceder via: https://tutienda.es/modules/customergrouppriceunico/diag.php?run=unico
+ *
+ * Ejecutar por SSH:
+ *   php /var/www/vhosts/mesascomedor.es/httpdocs/modules/customergrouppriceunico/diag.php
+ *
  * BORRAR ESTE ARCHIVO UNA VEZ IDENTIFICADO EL PROBLEMA.
  */
-if (($_GET['run'] ?? '') !== 'unico') {
+$isCli = PHP_SAPI === 'cli';
+
+// Por web requiere parametro de seguridad; por CLI siempre corre
+if (!$isCli && ($_GET['run'] ?? '') !== 'unico') {
     http_response_code(403);
-    die('403 — pasa ?run=unico en la URL');
+    die('Ejecuta por SSH: php modules/customergrouppriceunico/diag.php');
 }
 
 ini_set('display_errors', '1');
