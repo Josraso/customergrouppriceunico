@@ -43,10 +43,10 @@ class Customergrouppriceunico extends Module
             'Modules.Customergrouppriceunico.Admin'
         );
 
-        // Aviso informativo en PS9: override operativo pero deprecated
+        // PS9: los overrides de clase causan pantalla en blanco; se usa hook en su lugar
         if (version_compare(_PS_VERSION_, '9.0.0', '>=')) {
             $this->warning = $this->trans(
-                'PS9 detectado: el sistema de overrides esta deprecated. El modulo funciona correctamente en la version actual de PS9.',
+                'PS9 detectado: se usa hook actionProductPriceCalculation en lugar de override de clase.',
                 [],
                 'Modules.Customergrouppriceunico.Admin'
             );
@@ -55,7 +55,7 @@ class Customergrouppriceunico extends Module
 
     public function install()
     {
-        return parent::install()
+        $result = parent::install()
             && $this->registerHook('displayAdminProductsExtra')
             && $this->registerHook('actionProductUpdate')
             && $this->registerHook('actionProductAdd')
@@ -63,6 +63,38 @@ class Customergrouppriceunico extends Module
             && $this->registerHook('actionAfterCreateProductFormHandler')
             && $this->installTab()
             && $this->installDB();
+
+        // PS9+: el sistema de overrides causa pantalla en blanco; usamos hook en su lugar
+        if ($result && version_compare(_PS_VERSION_, '9.0.0', '>=')) {
+            $result = $this->registerHook('actionProductPriceCalculation');
+        }
+
+        return $result;
+    }
+
+    /**
+     * PS9+: no instalar el override de clase (causa pantalla en blanco).
+     * Para PS < 9 se delega al comportamiento nativo.
+     */
+    public function installOverrides()
+    {
+        if (version_compare(_PS_VERSION_, '9.0.0', '>=')) {
+            return true;
+        }
+
+        return parent::installOverrides();
+    }
+
+    /**
+     * PS9+: nada que desinstalar (override nunca fue instalado).
+     */
+    public function uninstallOverrides()
+    {
+        if (version_compare(_PS_VERSION_, '9.0.0', '>=')) {
+            return true;
+        }
+
+        return parent::uninstallOverrides();
     }
 
     public function installDB()
@@ -288,6 +320,181 @@ class Customergrouppriceunico extends Module
         }
         $this->saveGroupPrices($id_product, (array) $allgroup_price);
         $this->isSaved = true;
+    }
+
+    // -------------------------------------------------------------------------
+    // Hook PS9+: calculo de precio via hook (sin override de clase)
+    // El hook actionProductPriceCalculation se dispara AL FINAL de
+    // ProductCore::priceCalculation(), con $price ya calculado (con IVA,
+    // ecotax y reducciones aplicadas). Recalculamos desde cero sustituyendo
+    // el precio base por nuestro precio de grupo.
+    // -------------------------------------------------------------------------
+
+    public function hookActionProductPriceCalculation($params)
+    {
+        if (!(int) Configuration::get('CGRPPRICEUNICO_ENABLE')) {
+            return;
+        }
+
+        // only_reduc: peticion de descuento, no precio final; no aplica
+        if (!empty($params['only_reduc'])) {
+            return;
+        }
+
+        $id_product = (int) ($params['id_product'] ?? 0);
+        $id_group   = (int) ($params['id_group']   ?? 0);
+
+        if (!$id_product || !$id_group) {
+            return;
+        }
+
+        $group_price = Db::getInstance()->getValue(
+            'SELECT `product_price` FROM `' . _DB_PREFIX_ . 'customergrouppriceunico`
+            WHERE `id_product` = ' . $id_product . '
+            AND `group_id` = '   . $id_group
+        );
+
+        if ((float) $group_price <= 0) {
+            return;
+        }
+
+        // Extraer parametros del hook
+        $id_shop              = (int) ($params['id_shop']               ?? Context::getContext()->shop->id);
+        $id_currency          = (int) ($params['id_currency']           ?? 0);
+        $id_product_attribute = (int) ($params['id_product_attribute']  ?? 0);
+        $id_customization     = (int) ($params['id_customization']      ?? 0);
+        $id_country           = (int) ($params['id_country']            ?? 0);
+        $id_state             = (int) ($params['id_state']              ?? 0);
+        $zipcode              = $params['zip_code']                     ?? '';
+        $use_tax              = (bool) ($params['use_tax']              ?? false);
+        $with_ecotax          = (bool) ($params['with_ecotax']          ?? true);
+        $use_reduc            = (bool) ($params['use_reduc']            ?? true);
+        $use_group_reduction  = (bool) ($params['use_group_reduction']  ?? true);
+        $specific_price       = $params['specific_price']               ?? null;
+        $address              = $params['address']                      ?? null;
+        $context_obj          = $params['context']                      ?? null;
+
+        // --- Recalculo desde cero con precio de grupo como base ---
+
+        // Precio base: nuestro precio de grupo (almacenado sin IVA, moneda base)
+        $price = (float) $group_price;
+
+        // Conversion de moneda
+        $price = Tools::convertPrice($price, $id_currency);
+
+        // Precio de atributo (combinacion): se suma sobre el precio de grupo
+        if ($id_product_attribute && Combination::isFeatureActive()) {
+            $attribute_price = Db::getInstance()->getValue(
+                'SELECT `price` FROM `' . _DB_PREFIX_ . 'product_attribute_shop`
+                WHERE `id_product_attribute` = ' . $id_product_attribute . '
+                AND `id_shop` = ' . $id_shop
+            );
+            if ($attribute_price !== false) {
+                $price += Tools::convertPrice((float) $attribute_price, $id_currency);
+            }
+        }
+
+        // Personalizacion
+        if ($id_customization) {
+            $price += Tools::convertPrice(
+                Customization::getCustomizationPrice($id_customization),
+                $id_currency
+            );
+        }
+
+        // Impuestos
+        if ($address === null) {
+            $address = new Address();
+            $address->id_country = $id_country;
+            $address->id_state   = $id_state;
+            $address->postcode   = $zipcode;
+        }
+
+        $tax_manager = TaxManagerFactory::getManager(
+            $address,
+            Product::getIdTaxRulesGroupByIdProduct($id_product, $context_obj)
+        );
+        $product_tax_calculator = $tax_manager->getTaxCalculator();
+
+        if ($use_tax) {
+            $price = $product_tax_calculator->addTaxes($price);
+        }
+
+        // Ecotax
+        if ($with_ecotax) {
+            $ecotax_row = Db::getInstance()->getRow(
+                'SELECT ps.`ecotax`' .
+                ($id_product_attribute ? ', pas.`ecotax` AS `attribute_ecotax`' : '') . '
+                FROM `' . _DB_PREFIX_ . 'product_shop` ps' .
+                ($id_product_attribute
+                    ? ' LEFT JOIN `' . _DB_PREFIX_ . 'product_attribute_shop` pas
+                        ON pas.`id_product_attribute` = ' . $id_product_attribute . '
+                        AND pas.`id_shop` = ps.`id_shop`'
+                    : '') . '
+                WHERE ps.`id_product` = ' . $id_product . '
+                AND ps.`id_shop` = '   . $id_shop
+            );
+
+            if ($ecotax_row) {
+                $ecotax = (float) $ecotax_row['ecotax'];
+                if (!empty($ecotax_row['attribute_ecotax'])
+                    && (float) $ecotax_row['attribute_ecotax'] > 0
+                ) {
+                    $ecotax = (float) $ecotax_row['attribute_ecotax'];
+                }
+                if ($ecotax > 0) {
+                    if ($id_currency) {
+                        $ecotax = Tools::convertPrice($ecotax, $id_currency);
+                    }
+                    if ($use_tax) {
+                        $eco_tax_group_id = (int) Configuration::get('PS_ECOTAX_TAX_RULES_GROUP_ID');
+                        $eco_manager = TaxManagerFactory::getManager($address, $eco_tax_group_id);
+                        $price += $eco_manager->getTaxCalculator()->addTaxes($ecotax);
+                    } else {
+                        $price += $ecotax;
+                    }
+                }
+            }
+        }
+
+        // Reduccion de precio especifico (si existe un SpecificPrice independiente)
+        if ($use_reduc && $specific_price) {
+            if ($specific_price['reduction_type'] === 'amount') {
+                $reduction_amount = $specific_price['reduction'];
+                if (!$specific_price['id_currency']) {
+                    $reduction_amount = Tools::convertPrice($reduction_amount, $id_currency);
+                }
+                $specific_price_reduction = $reduction_amount;
+                if (!$use_tax && $specific_price['reduction_tax']) {
+                    $specific_price_reduction = $product_tax_calculator->removeTaxes($specific_price_reduction);
+                }
+                if ($use_tax && !$specific_price['reduction_tax']) {
+                    $specific_price_reduction = $product_tax_calculator->addTaxes($specific_price_reduction);
+                }
+            } else {
+                $specific_price_reduction = $price * $specific_price['reduction'];
+            }
+            $price -= $specific_price_reduction;
+        }
+
+        // Reduccion de grupo (se aplica sobre el precio de grupo tambien)
+        if ($use_group_reduction) {
+            $reduction_from_category = GroupReduction::getValueForProduct($id_product, $id_group);
+            if ($reduction_from_category !== false) {
+                $price -= $price * (float) $reduction_from_category;
+            } else {
+                $reduc = Group::getReductionByIdGroup($id_group);
+                if ($reduc != 0) {
+                    $price -= $price * $reduc / 100;
+                }
+            }
+        }
+
+        if ($price < 0) {
+            $price = 0;
+        }
+
+        $params['price'] = $price;
     }
 
     // -------------------------------------------------------------------------
