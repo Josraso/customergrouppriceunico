@@ -86,15 +86,14 @@ class Customergrouppriceunico extends Module
     }
 
     /**
-     * PS9+: nada que desinstalar (override nunca fue instalado).
+     * Siempre intentar limpiar overrides al desinstalar, incluso en PS9+.
+     * Necesario para borrar el override que instalaciones antiguas
+     * (con codigo previo) dejaron en el class index de PS9.
      */
     public function uninstallOverrides()
     {
-        if (version_compare(_PS_VERSION_, '9.0.0', '>=')) {
-            return true;
-        }
-
-        return parent::uninstallOverrides();
+        parent::uninstallOverrides();
+        return true;
     }
 
     public function installDB()
