@@ -62,7 +62,8 @@ class Customergrouppriceunico extends Module
             && $this->registerHook('actionAfterUpdateProductFormHandler')
             && $this->registerHook('actionAfterCreateProductFormHandler')
             && $this->installTab()
-            && $this->installDB();
+            && $this->installDB()
+            && Configuration::updateValue('CGRPPRICEUNICO_ENABLE', 1);
 
         // PS9+: el sistema de overrides causa pantalla en blanco; usamos hook en su lugar
         if ($result && version_compare(_PS_VERSION_, '9.0.0', '>=')) {
