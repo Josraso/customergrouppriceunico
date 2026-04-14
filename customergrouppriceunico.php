@@ -32,6 +32,13 @@ class Customergrouppriceunico extends Module
         $this->bootstrap = true;
         parent::__construct();
 
+        // Auto-registro del hook displayBackOfficeHeader para instalaciones
+        // existentes que no lo tienen registrado (upgrade desde version anterior).
+        if ($this->id && !Configuration::get('CGRPPRICEUNICO_HEADER_HOOK_V1')) {
+            $this->registerHook('displayBackOfficeHeader');
+            Configuration::updateValue('CGRPPRICEUNICO_HEADER_HOOK_V1', 1);
+        }
+
         $this->displayName = $this->trans(
             'Customer Group Price Unico',
             [],
@@ -57,13 +64,15 @@ class Customergrouppriceunico extends Module
     {
         $result = parent::install()
             && $this->registerHook('displayAdminProductsExtra')
+            && $this->registerHook('displayBackOfficeHeader')
             && $this->registerHook('actionProductUpdate')
             && $this->registerHook('actionProductAdd')
             && $this->registerHook('actionAfterUpdateProductFormHandler')
             && $this->registerHook('actionAfterCreateProductFormHandler')
             && $this->installTab()
             && $this->installDB()
-            && Configuration::updateValue('CGRPPRICEUNICO_ENABLE', 1);
+            && Configuration::updateValue('CGRPPRICEUNICO_ENABLE', 1)
+            && Configuration::updateValue('CGRPPRICEUNICO_HEADER_HOOK_V1', 1);
 
         // PS9+: el sistema de overrides causa pantalla en blanco; usamos hook en su lugar
         if ($result && version_compare(_PS_VERSION_, '9.0.0', '>=')) {
@@ -192,6 +201,27 @@ class Customergrouppriceunico extends Module
         $this->context->smarty->assign(['enable' => $enable]);
         $this->_html .= $this->display(__FILE__, 'views/templates/admin/customergrouppriceunico.tpl');
         return $this->_html;
+    }
+
+    // -------------------------------------------------------------------------
+    // Hook: inyeccion de JS en cabecera del backoffice
+    // Usa | raw en la plantilla de PS (no pasa por HTMLPurifier), por lo que
+    // el tag <script> se incluye tal cual en el <head> de todas las paginas
+    // del admin. El JS solo actua si encuentra .cgpu-wrap en el DOM.
+    // -------------------------------------------------------------------------
+
+    public function hookDisplayBackOfficeHeader($params)
+    {
+        if (!(int) Configuration::get('CGRPPRICEUNICO_ENABLE')) {
+            return '';
+        }
+
+        $src = htmlspecialchars(
+            $this->_path . 'views/js/product_admin.js?v=' . $this->version,
+            ENT_QUOTES
+        );
+
+        return '<script src="' . $src . '"></script>';
     }
 
     // -------------------------------------------------------------------------
