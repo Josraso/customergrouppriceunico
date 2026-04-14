@@ -200,7 +200,7 @@ class Customergrouppriceunico extends Module
     public function hookDisplayAdminProductsExtra($params)
     {
         if (!(int) Configuration::get('CGRPPRICEUNICO_ENABLE')) {
-            return;
+            return '';
         }
 
         $id_product      = (int) $params['id_product'];
@@ -230,7 +230,7 @@ class Customergrouppriceunico extends Module
             'configure_link'  => $configure_link,
         ]);
 
-        return $this->fetch('module:customergrouppriceunico/views/templates/hook/unicogrouppricelist.tpl');
+        return (string) $this->fetch('module:customergrouppriceunico/views/templates/hook/unicogrouppricelist.tpl');
     }
 
     // -------------------------------------------------------------------------
