@@ -13,7 +13,7 @@
  * @copyright 2007-2024 TMD
  * @license   https://opensource.org/licenses/OSL-3.0 Open Software License (OSL 3.0)
  */
-if (!defined('_CAN_LOAD_FILES_')) {
+if (!defined('_CAN_LOAD_FILES_') && !defined('_PS_VERSION_')) {
     exit;
 }
 
